@@ -1,36 +1,36 @@
-# Hyperliquid Funding Rate Research
+# Исследование ставок финансирования на Hyperliquid
 
-## TL;DR
+## Краткое содержание
 
-Quantitative research project in Rust testing whether funding-rate farming on Hyperliquid perpetual swaps is profitable for a retail account at typical bid-ask spreads. The hypothesis was falsified: **0 of 228 parametric strategy combinations produce positive net P&L over a 30-day backtest after realistic transaction costs**.
+Количественный исследовательский проект на Rust, проверяющий, прибыльна ли стратегия фарминга ставок финансирования на бессрочных свопах Hyperliquid для розничного счёта при типичных спредах bid-ask. Гипотеза была опровергнута: **0 из 228 параметрических комбинаций стратегии дают положительный чистый P&L на 30-дневном бэктесте после учёта реалистичных транзакционных издержек**.
 
-## Key Finding
+## Ключевой результат
 
-| Metric | Value |
+| Метрика | Значение |
 |---|---|
-| Profitable parameter combinations | **0 / 228** |
-| Break-even funding APR (taker entry) | **179%** |
-| Break-even funding APR (maker entry) | **95%** |
-| Average realized funding APR over hold periods | **~11%** |
-| Round-trip cost (taker) | 49 bps (20 spread + 2×4.5 taker + 2×10 slippage) |
-| Round-trip cost (maker entry, taker exit) | 26 bps |
-| Best single combination (max-hold-only, $200 APR threshold, 12h hold) | **−$0.26 net over 30 days** |
+| Прибыльные комбинации параметров | **0 / 228** |
+| Безубыточная APR финансирования (вход тейкером) | **179%** |
+| Безубыточная APR финансирования (вход мейкером) | **95%** |
+| Средняя реализованная APR финансирования за периоды удержания | **~11%** |
+| Стоимость круговой сделки (тейкер) | 49 б.п. (20 спред + 2×4.5 тейкер + 2×10 проскальзывание) |
+| Стоимость круговой сделки (вход мейкером, выход тейкером) | 26 б.п. |
+| Лучшая отдельная комбинация (только max-hold, порог $200 APR, удержание 12ч) | **−$0.26 чистыми за 30 дней** |
 
-**Root cause.** Extreme funding spikes (>200% APR) are transient by construction — they exist precisely because the market is in temporary imbalance. Realized funding accruals over any reasonable hold period are 3–5× lower than the entry funding APR observed at decision time. The capturable edge is structurally smaller than the round-trip transaction cost across the entire parameter surface.
+**Корневая причина.** Экстремальные всплески финансирования (>200% APR) транзиентны по своей природе — они существуют именно потому, что рынок находится во временном дисбалансе. Реализованные начисления финансирования за любой разумный период удержания в 3–5 раз ниже, чем APR финансирования, наблюдаемая в момент принятия решения о входе. Уловимый край структурно меньше стоимости круговой транзакции на всей поверхности параметров.
 
-## What I Built
+## Что я построил
 
-A production-grade quantitative research stack written in Rust. I designed and implemented every component below from scratch:
+Production-уровневый стек для количественных исследований, написанный на Rust. Я спроектировал и реализовал каждый компонент ниже с нуля:
 
-- **Real-time data collector.** Long-running daemon (managed by systemd) that polls Hyperliquid's `/info` endpoint every 5 minutes, parses 146+ active perp contexts, and writes batched inserts inside a single SQLite transaction.
-- **Time-series storage.** SQLite with WAL-friendly access patterns. Two tables: `funding_snapshots` (collected from `metaAndAssetCtxs`, ~42k rows/day) and `historical_funding` (downloaded from `fundingHistory` for backtesting).
-- **Live TUI dashboard.** Five-section ratatui interface with auto-refresh, read-only DB connection (`busy_timeout=5s`), graceful Ctrl+C / `q` shutdown with terminal restoration, panic-hook cleanup.
-- **Telegram alerting.** Independent service that diffs current tier classifications against an in-memory snapshot, emits typed events (`NEW SIGNAL`, `TIER UP/DOWN`, `SIGNAL LOST`), and applies anti-spam (30-min cooldown per asset, flip-flop mute after 3 changes in 10 minutes).
-- **Backtest engine.** Hour-by-hour simulator over historical funding rates with full cost model (spread, maker/taker fees, slippage, configurable for both entry sides).
-- **Parameter sweep.** Cartesian sweep over `{maker, min_funding_apr, hold_hours, max_positions, exit_strategy}` plus a hysteresis-threshold sub-sweep, with a separate verbose run on the best combination.
-- **Production deployment.** systemd service units with `KillSignal=SIGINT` for graceful shutdown, `Restart=on-failure` with backoff, environment-based secret injection via `systemctl edit` drop-ins (no secrets in repo).
+- **Сборщик данных в реальном времени.** Долгоживущий демон (управляемый systemd), который опрашивает эндпоинт `/info` Hyperliquid каждые 5 минут, парсит 146+ активных перпов и записывает батчевые вставки в одной транзакции SQLite.
+- **Хранилище временных рядов.** SQLite с паттернами доступа, дружественными к WAL. Две таблицы: `funding_snapshots` (собирается из `metaAndAssetCtxs`, ~42к строк/день) и `historical_funding` (загружается из `fundingHistory` для бэктестинга).
+- **Live TUI-дашборд.** Интерфейс из пяти секций на ratatui с автообновлением, read-only-подключением к БД (`busy_timeout=5s`), корректным завершением по Ctrl+C / `q` с восстановлением терминала, очисткой через panic-hook.
+- **Telegram-оповещения.** Независимый сервис, который сравнивает текущие классификации тиров с in-memory снапшотом, генерирует типизированные события (`NEW SIGNAL`, `TIER UP/DOWN`, `SIGNAL LOST`) и применяет анти-спам (cooldown 30 минут на актив, mute при флип-флопе после 3 изменений за 10 минут).
+- **Движок бэктестинга.** Почасовой симулятор по историческим ставкам финансирования с полной моделью издержек (спред, комиссии мейкера/тейкера, проскальзывание, конфигурируемые для обеих сторон входа).
+- **Параметрический свип.** Декартов перебор по `{maker, min_funding_apr, hold_hours, max_positions, exit_strategy}` плюс под-свип по порогам гистерезиса, с отдельным verbose-запуском на лучшей комбинации.
+- **Production-деплой.** Юниты systemd с `KillSignal=SIGINT` для корректного завершения, `Restart=on-failure` с бэкоффом, инъекция секретов через переменные окружения с помощью drop-in'ов `systemctl edit` (никаких секретов в репозитории).
 
-## Architecture
+## Архитектура
 
 ```
                     ┌──────────────────────────────────┐
@@ -38,13 +38,13 @@ A production-grade quantitative research stack written in Rust. I designed and i
                     │  (metaAndAssetCtxs, fundingHistory)│
                     └────────────────┬─────────────────┘
                                      │
-                          POST every 5 min       POST batched
-                                     │           (backtest only)
+                          POST каждые 5 мин   POST батчами
+                                     │       (только бэктест)
                                      ▼
                     ┌──────────────────────────────────┐
-                    │  collector  (systemd daemon)     │
+                    │  collector  (демон systemd)      │
                     │  fetch → parse → tx INSERT       │
-                    │  graceful shutdown on SIGINT     │
+                    │  корректный shutdown по SIGINT   │
                     └────────────────┬─────────────────┘
                                      │
                                      ▼
@@ -66,188 +66,188 @@ A production-grade quantitative research stack written in Rust. I designed and i
                               ┌──────────────┐  ┌────────────┐
                               │ Telegram Bot │  │  comfy-    │
                               │     API      │  │  table     │
-                              └──────────────┘  │  reports   │
+                              └──────────────┘  │  отчёты    │
                                                 └────────────┘
 ```
 
-## Tech Stack
+## Технологический стек
 
-| Layer | Choice | Why |
+| Слой | Выбор | Почему |
 |---|---|---|
-| Language | Rust 1.95 (edition 2024) | Single-binary deployment, no GC pauses for the polling loop, strict typing on financial math |
-| Async runtime | tokio (full features) | One runtime for HTTP, signals, and timers |
-| HTTP | reqwest 0.12 (json) | Standard, well-maintained, handles connection pooling |
-| Storage | sqlx 0.8 + SQLite | Embedded, zero-ops, sufficient throughput at this scale |
-| TUI | ratatui 0.28 + crossterm 0.28 | Modern fork of tui-rs, active development, clean Frame API |
-| CLI | clap 4 (derive) | Subcommand structure mirrors the experimental workflow |
-| Tables | comfy-table 7 | Terminal output for backtest reports |
-| Time | chrono 0.4 | RFC3339 logging + formatted timestamps in the UI |
-| Service mgmt | systemd | Linux-native; `KillSignal=SIGINT` matches our app's signal handler |
+| Язык | Rust 1.95 (edition 2024) | Деплой одним бинарником, отсутствие GC-пауз в цикле опроса, строгая типизация для финансовой математики |
+| Async-runtime | tokio (full features) | Один runtime для HTTP, сигналов и таймеров |
+| HTTP | reqwest 0.12 (json) | Стандартный, хорошо поддерживаемый, обрабатывает пулинг соединений |
+| Хранилище | sqlx 0.8 + SQLite | Встраиваемый, zero-ops, достаточная пропускная способность на данном масштабе |
+| TUI | ratatui 0.28 + crossterm 0.28 | Современный форк tui-rs, активная разработка, чистый Frame API |
+| CLI | clap 4 (derive) | Структура подкоманд отражает экспериментальный workflow |
+| Таблицы | comfy-table 7 | Терминальный вывод для отчётов бэктеста |
+| Время | chrono 0.4 | Логирование RFC3339 + форматированные временные метки в UI |
+| Управление сервисами | systemd | Нативно для Linux; `KillSignal=SIGINT` совпадает с обработчиком сигналов нашего приложения |
 
-## Strategy Hypothesis
+## Гипотеза стратегии
 
-> Open a position when annualized funding APR exceeds threshold X, hold for up to N hours, exit on either signal loss or `max_hold`. Choose the side that *receives* funding (LONG when funding is negative, SHORT when positive).
+> Открыть позицию, когда годовая APR финансирования превышает порог X, удерживать до N часов, выходить либо по потере сигнала, либо по `max_hold`. Выбирать ту сторону, которая *получает* финансирование (LONG при отрицательном финансировании, SHORT при положительном).
 
-Sweep axes (Cartesian product, 216 main + 12 hysteresis sub-sweep = **228 total runs**):
+Оси свипа (декартово произведение, 216 основных + 12 под-свип по гистерезису = **228 запусков всего**):
 
-| Axis | Values |
+| Ось | Значения |
 |---|---|
-| Entry order type | maker, taker |
-| Min funding APR threshold | 50%, 100%, 150%, 200% |
-| Hold horizon | 6h, 12h, 24h |
-| Max concurrent positions | 1, 3, 5 |
-| Exit strategy | `std` (signal-based), `max-hold-only`, `hysteresis` (entry/exit thresholds) |
+| Тип ордера на вход | maker, taker |
+| Минимальный порог APR финансирования | 50%, 100%, 150%, 200% |
+| Горизонт удержания | 6ч, 12ч, 24ч |
+| Макс. одновременных позиций | 1, 3, 5 |
+| Стратегия выхода | `std` (по сигналу), `max-hold-only`, `hysteresis` (пороги входа/выхода) |
 
-Cost model:
+Модель издержек:
 
-- **Taker entry**: `spread/2 + taker_fee + slippage` = 10 + 4.5 + 10 = 24.5 bps
-- **Maker entry** (mid-fill assumed): `maker_fee` = 1.5 bps
-- **Exit** (always taker, to guarantee fill on `signal_lost`): 24.5 bps
-- **Round-trip**: 49 bps taker / 26 bps maker
+- **Вход тейкером**: `spread/2 + taker_fee + slippage` = 10 + 4.5 + 10 = 24.5 б.п.
+- **Вход мейкером** (предполагается заполнение по mid): `maker_fee` = 1.5 б.п.
+- **Выход** (всегда тейкером, чтобы гарантировать заполнение по `signal_lost`): 24.5 б.п.
+- **Круговая сделка**: 49 б.п. тейкер / 26 б.п. мейкер
 
-Position sizing in APR-filter mode is fixed at 10% of capital per position (so sweep axes stay independent).
+Размер позиции в режиме APR-фильтра зафиксирован на 10% капитала на позицию (чтобы оси свипа оставались независимыми).
 
-## Why It Doesn't Work
+## Почему это не работает
 
-The strategy fails because of a **temporal asymmetry** between funding-rate observation and funding-rate accrual.
+Стратегия проваливается из-за **временной асимметрии** между наблюдением ставки финансирования и её начислением.
 
-1. **Spikes are transient.** A funding APR reading of +400% reflects a single hour's funding rate annualized. By construction, the market mechanism that pays funding *is* the rebalancing force — high funding attracts the opposite side, which collapses funding back toward the cross-venue mean. Within 1–6 hours of a spike, the rate typically reverts 50–80%.
+1. **Всплески транзиентны.** Показание APR финансирования +400% отражает ставку финансирования за один час, годовализированную. По построению, рыночный механизм, выплачивающий финансирование, *и есть* сила ребалансировки — высокое финансирование привлекает противоположную сторону, что обрушивает финансирование обратно к среднему по площадкам. В течение 1–6 часов после всплеска ставка обычно откатывается на 50–80%.
 
-2. **Tighter holds don't help.** Cutting `hold_hours` to 6 means even less time to amortize the round-trip cost. Best 6h combo: ~$0.07 gross funding vs $0.26 maker round-trip cost.
+2. **Более короткие удержания не помогают.** Сокращение `hold_hours` до 6 означает ещё меньше времени на амортизацию стоимости круговой сделки. Лучшая комбинация на 6ч: ~$0.07 валового финансирования против $0.26 круговой стоимости мейкера.
 
-3. **Wider holds don't help.** Extending to 24–48 hours collects mean-reverted (i.e., low) funding for most of the holding period. Average realized funding APR across the verbose best run was 11%, even though the entry filter was 200%+.
+3. **Более длинные удержания не помогают.** Расширение до 24–48 часов собирает откатившееся (то есть низкое) финансирование на протяжении большей части периода удержания. Средняя реализованная APR финансирования в verbose-запуске лучшей комбинации составила 11%, хотя фильтр входа был 200%+.
 
-4. **The std-based `signal_lost` exit was the leading suspect.** Removing it (the `max-hold-only` exit strategy) marginally improved the best result (−$0.26 vs −$0.63) but did not flip the sign on any combination. The improvement is structural-floor, not a real edge.
+4. **Выход `signal_lost` на основе std был ведущим подозреваемым.** Его удаление (стратегия выхода `max-hold-only`) маргинально улучшило лучший результат (−$0.26 против −$0.63), но не перевернуло знак ни на одной комбинации. Улучшение — это структурный пол, а не реальный край.
 
-5. **Hysteresis (wide entry/exit threshold gap) does not help.** Tested 6 (entry, exit) threshold pairs across hold horizons: all 84 hysteresis combinations are net-negative.
+5. **Гистерезис (широкий разрыв между порогами входа/выхода) не помогает.** Протестировано 6 пар порогов (вход, выход) на разных горизонтах удержания: все 84 комбинации с гистерезисом отрицательны.
 
-The net-positive parameter sub-region simply does not exist in this surface for this asset universe (top 50 perps by current Hyperliquid volume) over the 30-day window.
+Положительная по чистому результату подобласть параметров просто не существует на этой поверхности для данной вселенной активов (топ-50 перпов по текущему объёму Hyperliquid) на 30-дневном окне.
 
-## What Wasn't Tested (Limitations of This Study)
+## Что не было протестировано (ограничения исследования)
 
-- **Cash-and-carry / basis trade.** Long spot + short perp delta-hedges price risk, allowing multi-week holds while collecting funding. Hyperliquid has spot markets; this is the canonical institutional approach to funding farming. It was not implemented because it requires a second order book, separate execution paths, and inventory tracking.
-- **Predictive entry signals.** This study uses a *reactive* trigger (funding APR has already crossed the threshold). Predictive signals derived from order-book imbalance, OI velocity, or social sentiment may have better entry timing — at the cost of strategy complexity.
-- **Cross-exchange funding arbitrage.** Funding rates differ across Hyperliquid / Bybit / Binance for the same underlying. A multi-venue setup can extract the spread, but adds custodial, network, and synchronization complexity.
-- **Sub-account or VIP fee tiers.** A maker fee of 0 bps lowers the maker break-even from 95% to ~50% APR — within reach of average funding levels. VIP requires sustained $10M+ monthly volume, which is not a $1k-account scenario.
-- **Out-of-sample validation.** 30 days is a small statistical window. A 90+ day backtest would tighten the confidence interval, but is unlikely to flip the sign given the magnitude of the shortfall (cost-to-gross ratio > 5× in the best case).
+- **Cash-and-carry / базисный трейд.** LONG спот + SHORT перп дельта-хеджирует ценовой риск, позволяя удерживать многонедельные позиции при сборе финансирования. У Hyperliquid есть спот-рынки; это канонический институциональный подход к фармингу финансирования. Не реализован, потому что требует второй книги ордеров, отдельных путей исполнения и учёта инвентаря.
+- **Предиктивные сигналы входа.** Это исследование использует *реактивный* триггер (APR финансирования уже пересекла порог). Предиктивные сигналы, выводимые из дисбаланса книги ордеров, скорости OI или социального сентимента, могут обеспечить лучший тайминг входа — ценой усложнения стратегии.
+- **Кросс-биржевой арбитраж финансирования.** Ставки финансирования различаются между Hyperliquid / Bybit / Binance для одного и того же базового актива. Мульти-венюшный сетап может извлекать спред, но добавляет кастодиальную, сетевую и синхронизационную сложность.
+- **Суб-аккаунты или VIP-уровни комиссий.** Комиссия мейкера 0 б.п. снижает порог безубыточности мейкера с 95% до ~50% APR — в пределах досягаемости средних уровней финансирования. VIP требует устойчивого месячного объёма $10М+, что не сценарий счёта на $1к.
+- **Out-of-sample валидация.** 30 дней — это маленькое статистическое окно. Бэктест на 90+ дней сузил бы доверительный интервал, но вряд ли перевернул бы знак, учитывая величину дефицита (отношение издержек к валовому > 5× в лучшем случае).
 
-## Project Structure
+## Структура проекта
 
 ```
 funding-scanner/
 ├── src/
-│   ├── main.rs           # CLI dispatch (clap subcommands)
-│   ├── util.rs           # Shared formatters (format_usd, format_bytes)
-│   ├── watch.rs          # Live TUI dashboard (5 sections, auto-refresh)
-│   ├── alerts.rs         # Telegram alerter with rate limiting + flip-flop mute
-│   └── backtest.rs       # Backtest engine + 228-combination parameter sweep
+│   ├── main.rs           # CLI-диспатч (подкоманды clap)
+│   ├── util.rs           # Общие форматтеры (format_usd, format_bytes)
+│   ├── watch.rs          # Live TUI-дашборд (5 секций, автообновление)
+│   ├── alerts.rs         # Telegram-алертер с rate-limit + mute флип-флопа
+│   └── backtest.rs       # Движок бэктеста + свип на 228 комбинаций
 ├── systemd/
-│   ├── funding-collector.service   # Long-running data collector
-│   └── funding-alerts.service      # Telegram alert daemon (env-injected secrets)
-├── data/                 # SQLite databases (gitignored)
+│   ├── funding-collector.service   # Долгоживущий сборщик данных
+│   └── funding-alerts.service      # Демон Telegram-алертов (секреты через env)
+├── data/                 # Базы SQLite (в .gitignore)
 │   └── snapshots.db
 ├── Cargo.toml
 ├── Cargo.lock
 └── README.md
 ```
 
-## How to Run
+## Как запустить
 
-### Prerequisites
+### Требования
 
-- Rust 1.75+ (developed against 1.95)
-- Linux for systemd integration; the binary itself runs on macOS without service management
-- SQLite (bundled via `libsqlite3-sys`, no system install needed)
-- Outbound network access to `api.hyperliquid.xyz` and `api.telegram.org` (for alerts)
+- Rust 1.75+ (разрабатывалось на 1.95)
+- Linux для интеграции с systemd; сам бинарник работает на macOS без управления сервисами
+- SQLite (поставляется через `libsqlite3-sys`, системная установка не требуется)
+- Исходящий сетевой доступ к `api.hyperliquid.xyz` и `api.telegram.org` (для алертов)
 
-### Build
+### Сборка
 
 ```bash
 cargo build --release
 ```
 
-The optimized binary lands at `target/release/funding-scanner`.
+Оптимизированный бинарник появляется в `target/release/funding-scanner`.
 
-### Commands
+### Команды
 
 ```bash
-# One-off snapshot of the current market — top 20 perps by |funding APR|
+# Разовый снапшот текущего рынка — топ-20 перпов по |APR финансирования|
 ./target/release/funding-scanner scan
 
-# Continuous data collection (default 5-minute interval)
+# Непрерывный сбор данных (по умолчанию интервал 5 минут)
 ./target/release/funding-scanner collect
 ./target/release/funding-scanner collect --interval-seconds 60
 
-# Live TUI dashboard (read-only on the SQLite database)
+# Live TUI-дашборд (read-only по базе SQLite)
 ./target/release/funding-scanner watch
 
-# Persistence query (requires >= 6h of collected data for default thresholds)
+# Запрос персистентности (требует >= 6ч собранных данных для дефолтных порогов)
 ./target/release/funding-scanner persistent --hours 6 --min-apr 30
 
-# Telegram alerts (requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars;
-# without them, would-send messages are logged to stdout instead of crashing)
+# Telegram-алерты (требуют переменные окружения TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID;
+# без них сообщения, которые должны были бы отправиться, логируются в stdout вместо краша)
 TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
   ./target/release/funding-scanner alert-monitor
 
-# Single backtest with default parameters
+# Одиночный бэктест с дефолтными параметрами
 ./target/release/funding-scanner backtest --days 30 --capital 1000
 
-# Backtest with all cost knobs and exit strategies exposed
+# Бэктест со всеми ручками издержек и стратегиями выхода
 ./target/release/funding-scanner backtest \
   --days 30 --capital 1000 --max-positions 3 \
   --spread-bps 20 --taker-fee-bps 4.5 --maker-fee-bps 1.5 --slippage-bps 10 \
   --use-maker --hold-hours 24 \
   --exit-strategy hysteresis --hysteresis-entry-apr 200 --hysteresis-exit-apr 50
 
-# Full 228-combination parameter sweep + auto verbose run on best combo
+# Полный параметрический свип на 228 комбинаций + автоматический verbose-запуск на лучшей
 ./target/release/funding-scanner backtest-sweep --days 30
 ```
 
-### Production Deploy (systemd)
+### Production-деплой (systemd)
 
-The repo ships unit files in `systemd/` with placeholder secrets. Real credentials must be injected via `systemctl edit` drop-ins so they never enter version control.
+Репозиторий поставляет юнит-файлы в `systemd/` с плейсхолдерами секретов. Реальные креды должны инжектиться через drop-in'ы `systemctl edit`, чтобы они никогда не попадали в систему контроля версий.
 
 ```bash
-# Install both unit files
+# Установить оба юнит-файла
 sudo cp systemd/funding-collector.service /etc/systemd/system/
 sudo cp systemd/funding-alerts.service    /etc/systemd/system/
 
-# Inject Telegram secrets via drop-in override (creates a separate file under
-# /etc/systemd/system/funding-alerts.service.d/ that overrides Environment=)
+# Инжектировать секреты Telegram через drop-in override (создаёт отдельный файл в
+# /etc/systemd/system/funding-alerts.service.d/, который переопределяет Environment=)
 sudo systemctl edit funding-alerts.service
-# In the editor:
+# В редакторе:
 # [Service]
-# Environment="TELEGRAM_BOT_TOKEN=<real_token>"
-# Environment="TELEGRAM_CHAT_ID=<real_chat_id>"
+# Environment="TELEGRAM_BOT_TOKEN=<реальный_токен>"
+# Environment="TELEGRAM_CHAT_ID=<реальный_chat_id>"
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now funding-collector funding-alerts
 
-# Live logs
+# Live-логи
 journalctl -u funding-collector -f
 journalctl -u funding-alerts    -f
 ```
 
-Both services use `KillSignal=SIGINT` because the binary's shutdown handler listens on SIGINT, not SIGTERM. Without this override, `systemctl stop` would trigger SIGKILL after the timeout and be misclassified as a crash by `Restart=on-failure`.
+Оба сервиса используют `KillSignal=SIGINT`, потому что shutdown-обработчик бинарника слушает SIGINT, а не SIGTERM. Без этого override `systemctl stop` запустил бы SIGKILL после таймаута, и это было бы неверно классифицировано как краш через `Restart=on-failure`.
 
-## Author
+## Автор
 
-**[YOUR_USERNAME]** — sole author and developer of this project.
+**[YOUR_USERNAME]** — единственный автор и разработчик этого проекта.
 
-- Designed the research methodology and formulated the hypotheses
-- Architected and implemented the entire Rust codebase (collector, TUI, alerter, backtest engine, parameter sweep)
-- Selected the parameter axes for the sweep and chose the cost model parameters consistent with current Hyperliquid retail conditions
-- Validated and interpreted all results
-- Configured the production deployment (systemd units, signal handling, secret injection, sandboxing)
+- Спроектировал методологию исследования и сформулировал гипотезы
+- Архитектурно спроектировал и реализовал всю кодовую базу на Rust (сборщик, TUI, алертер, движок бэктеста, параметрический свип)
+- Выбрал оси параметров для свипа и параметры модели издержек, согласованные с текущими розничными условиями Hyperliquid
+- Валидировал и интерпретировал все результаты
+- Настроил production-деплой (юниты systemd, обработка сигналов, инъекция секретов, sandboxing)
 
-The negative result — falsifying the hypothesis that this funding-farming strategy can survive realistic transaction costs — is the meaningful research output of this study. A robust negative result is more valuable than an unfalsified positive one, because it rules out an entire region of strategy space rather than leaving it ambiguous.
+Отрицательный результат — опровержение гипотезы о том, что данная стратегия фарминга финансирования может выжить при реалистичных транзакционных издержках — это значимый исследовательский продукт данного исследования. Надёжный отрицательный результат ценнее, чем неопровергнутый положительный, потому что он исключает целую область пространства стратегий, а не оставляет её неоднозначной.
 
-## License
+## Лицензия
 
 MIT
 
-## Disclaimer
+## Дисклеймер
 
-This is research code, not financial advice. The conclusion of this study is that the strategy as specified is **not profitable** at retail-account transaction costs on Hyperliquid. Do not deploy this code with real capital expecting profits.
+Это исследовательский код, а не финансовый совет. Вывод данного исследования состоит в том, что стратегия в указанной формулировке **не прибыльна** при транзакционных издержках розничного счёта на Hyperliquid. Не разворачивайте этот код с реальным капиталом в ожидании прибыли.
 
-Past funding rates are not predictive of future funding rates. Real execution will incur additional costs not modeled here (liquidation risk, mark-price drift during the holding period, partial fills on maker entries, exchange downtime, on-chain settlement variance). The backtest assumes instantaneous execution at observed mark prices, which is an upper bound on achievable performance.
+Прошлые ставки финансирования не предсказывают будущие ставки финансирования. Реальное исполнение повлечёт дополнительные издержки, не моделируемые здесь (риск ликвидации, дрейф mark-цены за период удержания, частичные заполнения на входах мейкером, простои биржи, дисперсия on-chain-расчётов). Бэктест предполагает мгновенное исполнение по наблюдаемым mark-ценам, что является верхней границей достижимой производительности.
