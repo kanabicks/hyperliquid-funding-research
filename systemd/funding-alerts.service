@@ -1,0 +1,27 @@
+[Unit]
+Description=Hyperliquid funding alert monitor (Telegram notifications)
+After=network-online.target funding-collector.service
+Wants=network-online.target funding-collector.service
+
+[Service]
+Type=simple
+User=claudebot
+WorkingDirectory=/home/claudebot/projects/funding-scanner
+ExecStart=/home/claudebot/projects/funding-scanner/target/release/funding-scanner alert-monitor
+Restart=on-failure
+RestartSec=30s
+Environment="RUST_LOG=info"
+
+# ВАЖНО: НЕ КОММИТЬ реальные значения! После установки сделай:
+#   sudo systemctl edit funding-alerts.service
+# и в drop-in override впиши Environment= с настоящими токеном и chat_id.
+Environment="TELEGRAM_BOT_TOKEN=REPLACE_WITH_TOKEN"
+Environment="TELEGRAM_CHAT_ID=REPLACE_WITH_CHAT_ID"
+
+# App ловит SIGINT (как и collect). systemd по дефолту шлёт SIGTERM —
+# переопределяем чтобы получать graceful shutdown с exit 0.
+KillSignal=SIGINT
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=multi-user.target

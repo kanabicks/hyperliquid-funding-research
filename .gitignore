@@ -1,0 +1,24 @@
+# Rust build artifacts
+/target/
+
+# Local data — collected market snapshots, historical funding, SQLite WAL/SHM
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets — Telegram tokens, API keys, etc.
+.env
+.env.*
+/secrets/
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log

@@ -1,0 +1,24 @@
+[Unit]
+Description=Hyperliquid funding rate collector
+Documentation=https://github.com/anthropics/claude-code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claudebot
+WorkingDirectory=/home/claudebot/projects/funding-scanner
+ExecStart=/home/claudebot/projects/funding-scanner/target/release/funding-scanner collect
+Restart=on-failure
+RestartSec=30s
+Environment="RUST_LOG=info"
+
+# App ловит SIGINT (tokio::signal::ctrl_c), не SIGTERM.
+# systemd по дефолту шлёт SIGTERM — переопределяем на SIGINT, чтобы
+# `systemctl stop` дал нам graceful shutdown (commit текущей tx, exit 0),
+# а не SIGKILL после таймаута → Restart=on-failure → перезапуск без причины.
+KillSignal=SIGINT
+TimeoutStopSec=10s
+
+[Install]
+WantedBy=multi-user.target
